@@ -6,7 +6,7 @@ use std::thread::sleep;
 
 
 fn main() {
-    let mut rl = Ratelimit::new(20, 100);
+    let mut rl = Ratelimit::new(19, 100);
 
     let mut b: bool;
 
