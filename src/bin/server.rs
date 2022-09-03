@@ -1,36 +1,38 @@
-use futures::stream::StreamExt;
- 
+use std::str;
+
 use async_std::io;
 use async_std::net::TcpListener;
 use async_std::prelude::*;
 use async_std::task;
- 
-use futures::lock::Mutex;
 use async_std::sync::Arc;
-use std::str;
+
+use futures::lock::Mutex;
+use futures::stream::StreamExt;
 
 use ratelimit_rs::Ratelimit;
 
+const HITS: u32 = 5;
+const DURATION_MS: u32 = 10_000;
 
 fn main() -> io::Result<()> {
     task::block_on(async {
-        let listener = TcpListener::bind("127.0.0.1:7878").await?;
-        let rl =  Arc::new(Mutex::new((Ratelimit::new(5, 10_000))));
-          
+        let listener = TcpListener::bind("127.0.0.1:11211").await?;
+        let ratelimit =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS)));
+
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let mut stream = stream?;
-            let rl = rl.clone();
+            let ratelimit = ratelimit.clone();
             task::spawn(async move {
-                const M: usize = 1024;
-                let mut buffer = [0; M];
-                let mut err = false;
+                let mut buffer = [0; 512];
                 loop {
+                    // Read from TCP stream, up to n bytes
                     let read = match stream.read(&mut buffer).await {
                         Ok(n) => n,
                         Err(_) => break,
                     };
 
+                    // Empty read: the remote side closed the connection
                     if read == 0 {
                         break;
                     }
@@ -40,24 +42,9 @@ fn main() -> io::Result<()> {
                         Err(_) => break,
                     }.trim();
 
-                    //let input = input.trim_matches(char::is_whitespace).trim().to_string();
-/*
-                    let eos = match input.find('\0') {
-                        Some(x) => x - 1,
-                        None => input.len(),
-                    };
-
-                    let input = String::from(&input[0..eos]);
-*/
-                    //let input = String::from(String::from_utf8(buffer.into()).unwrap().trim());
-
-                    println!("did read {:?}", input);
-                    /*
-                    let (a, b) = match input.split_once(" ") {
-                        Some((x, y)) => (x.trim(), y.trim()),
-                        None => break,
-                    };
-                    */
+                    println!("incoming read: {:?}", input);
+                    
+                    // XXX handle "break" as error
                     let (command, key) = {
                         let mut split = input.split(" ");
                         (
@@ -70,24 +57,23 @@ fn main() -> io::Result<()> {
                             None => break,
                         })
                     };
-                   
-                    if command == "INC" {
-                        println!("inc ok: {:?}", key);
-                    }
-                    
-                    let response = { // block for scoping lock.
-                        let mut rl = rl.lock().await;
-                        let valid = rl.hit(&key.to_string());
-                        format!("input: {:?}, valid: {:?}\n", input, valid)
-                    };
-                    stream.write(response.as_bytes()).await;
-                    stream.flush().await;
-                };
 
-                if ( err ) {
-                    stream.write("ERR\r\n".as_bytes() ).await;
+                    let response = match command {
+                        "incr" => {
+                            let mut ratelimit = ratelimit.lock().await;
+                            if ratelimit.hit(&key.to_string()) {
+                                "0\r\n"
+                            } else {
+                                "1\r\n"
+                            }
+                        },
+                        _ => "ERROR\r\n",
+                    };
+                    
+                    stream.write(response.as_bytes() ).await;
                     stream.flush().await;
-                }
+                    
+                };
             });
             
         }

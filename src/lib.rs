@@ -208,7 +208,7 @@ mod test {
 
     #[test]
     fn test_cleanup() {
-        let root = Duration::from_millis(86_400_000);;
+        let root = Duration::from_millis(86_400_000);
         let rl_duration_ms = 60_000;
 
         MockClock::set_time(root);
