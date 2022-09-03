@@ -14,6 +14,40 @@ use ratelimit_rs::Ratelimit;
 const HITS: u32 = 5;
 const DURATION_MS: u32 = 10_000;
 
+enum Command {
+    INCR,
+}
+
+fn read_input(buffer: [u8; 512], len: usize) -> Result<(Command, String), ()> {
+    let input = match str::from_utf8(&buffer[0..len]) {
+        Ok(v) => v,
+        Err(_) => return Err(())
+    }.trim();
+
+    
+    println!("incoming read: {:?}", input);
+    
+    // XXX handle "break" as error
+    let (command, key) = {
+        let mut split = input.split(" ");
+        (
+        match split.next() {
+                Some(x) => x.trim(),
+                None => return Err(()),
+            },
+        match split.next() {
+            Some(x) => x.trim(),
+            None => return Err(()),
+        })
+    };
+
+
+    match command {
+        "incr" => Ok((Command::INCR, String::from(key))),
+        _ => Err(())
+    }
+}
+
 fn main() -> io::Result<()> {
     task::block_on(async {
         let listener = TcpListener::bind("127.0.0.1:11211").await?;
@@ -37,43 +71,27 @@ fn main() -> io::Result<()> {
                         break;
                     }
 
-                    let input = match str::from_utf8(&buffer[0..read]) {
-                        Ok(v) => v,
-                        Err(_) => break,
-                    }.trim();
-
-                    println!("incoming read: {:?}", input);
-                    
-                    // XXX handle "break" as error
-                    let (command, key) = {
-                        let mut split = input.split(" ");
-                        (
-                        match split.next() {
-                                Some(x) => x.trim(),
-                                None => break,
-                            },
-                        match split.next() {
-                            Some(x) => x.trim(),
-                            None => break,
-                        })
-                    };
-
-                    let response = match command {
-                        "incr" => {
-                            let mut ratelimit = ratelimit.lock().await;
-                            if ratelimit.hit(&key.to_string()) {
-                                "0\r\n"
-                            } else {
-                                "1\r\n"
+                    let response = match read_input(buffer, read) {
+                        Ok((command, key)) => {
+                            match command {
+                                Command::INCR => {
+                                    let mut ratelimit = ratelimit.lock().await;
+                                    if ratelimit.hit(&key.to_string()) {
+                                        "0\r\n"
+                                    } else {
+                                        "1\r\n"
+                                    }
+                                },
                             }
                         },
-                        _ => "ERROR\r\n",
+                        // Bad input
+                        Err(()) => "ERR\r\n",
                     };
-                    
-                    stream.write(response.as_bytes() ).await;
-                    stream.flush().await;
-                    
-                };
+
+                    if stream.write(response.as_bytes() ).await.is_err() || stream.flush().await.is_err() {
+                        break;
+                    }
+                }
             });
             
         }
