@@ -5,24 +5,23 @@ use std::time::Instant;
 
 #[cfg(test)]
 use mock_instant::Instant;
-//use fake_instant::FakeClock as Instant;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use std::cmp;
 
-const BLOCK_SIZE: usize = 32;
+const BLOCK_SIZE: usize = 64;
 
-struct Entry {
+struct RLEntry {
     epoch: Instant,
     index: u32,
     timestamps: Vec<u32>,
 }
 
-impl Entry {
-    fn new() -> Entry {
-        Entry {
+impl RLEntry {
+    fn new() -> RLEntry {
+        RLEntry {
             epoch: Instant::now() - Duration::from_millis(1),
             index: 0,
             timestamps: vec![0; BLOCK_SIZE],
@@ -31,23 +30,23 @@ impl Entry {
 
     // now is the difference since epoch
     fn rebase(&mut self, now: u32) -> u32{
-        let epoch = self.epoch;
+        // let epoch = self.epoch;
 
         if now < u32::MAX / 2 {
             return now;
         }
-
+        /*
         println!(
             "Rebase epoch={:?}, now={:?}",
             epoch, now
         );
         println!("Values: {:?}", self.timestamps);
+         */
 
         let min :u32 = match self.timestamps.iter().filter(|x| **x > 0).min() {
             Some(x) => *x - 1,
             None => 0,
         };
-
 
         let new_epoch = self.epoch + Duration::from_millis(min.into());
         for timestamp in self.timestamps.iter_mut() {
@@ -56,10 +55,9 @@ impl Entry {
             }
         }
         self.epoch = new_epoch;
-        println!("new values: {:?}", self.timestamps);
 
-
-        println!("min: {:?}, new={:?}", min, new_epoch);
+        /* println!("new values: {:?}", self.timestamps);
+        println!("min: {:?}, new={:?}", min, new_epoch); */
 
         return now - min;
     }
@@ -72,7 +70,6 @@ impl Entry {
         let mut now = u32::try_from(diff.as_millis()).unwrap();
 
         let index = usize::try_from(self.index).unwrap();
-
         {
             if index == self.timestamps.len() {
                 let max = usize::try_from(size).unwrap();
@@ -106,7 +103,7 @@ impl Entry {
 pub struct Ratelimit {
     hits: u32,
     duration: u32,
-    entries: HashMap<String, Entry>,
+    entries: HashMap<String, RLEntry>,
 }
 
 impl Ratelimit {
@@ -124,19 +121,23 @@ impl Ratelimit {
         match self.entries.get_mut(name) {
             Some(entry) => entry.hit(self.hits, self.duration),
             None => {
-                let mut new_entry = Entry::new();
+                let mut new_entry = RLEntry::new();
                 new_entry.hit(self.hits, self.duration);
                 self.entries.insert(name.clone(), new_entry);
                 true // assumes that we are not limited to 0 hits
             }
         }
     }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 
-    pub fn cleanup(&mut self) {
+    pub fn cleanup(&mut self) -> usize {
         let min = Instant::now() - Duration::from_millis(1000 + u64::from(self.duration));
+        let before = self.entries.len();
 
         self.entries.retain(|_, v| {
-            println!("{:?}", v.timestamps);
+            // println!("{:?}", v.timestamps);
             let index = usize::try_from(v.index).unwrap();
 
             let last = match index {
@@ -148,11 +149,47 @@ impl Ratelimit {
 
             last_ts > min
         });
+        //self.entries.shrink_to_fit();
+        before - self.entries.len()
     }
 }
 
-#[cfg(test)]
 
+pub struct MetaRatelimit {
+    entries: HashMap<(u32, u32), Ratelimit>,
+}
+
+impl MetaRatelimit {
+    pub fn new() -> MetaRatelimit {
+        MetaRatelimit { entries: HashMap::new() }
+    }
+
+    pub fn hit(&mut self, hits: u32, duration: u32, key: String) -> bool {
+        match self.entries.get_mut(&(hits, duration)) {
+            Some(e) =>  e.hit(&key),
+            None => {
+                println!("new meta");
+                let mut rl = Ratelimit::new(hits, duration);
+                let ret = rl.hit(&key);
+                self.entries.insert((hits, duration), rl);
+                ret
+            }
+        }
+    }
+
+    pub fn cleanup(&mut self) -> usize {
+        let mut sum = 0;
+
+        for (_, val) in self.entries.iter_mut() {
+            sum += val.cleanup();
+        }
+
+        sum
+    }
+}
+
+
+#[cfg(test)]
 mod test {
     use super::*;
     use mock_instant::{MockClock};
@@ -234,5 +271,38 @@ mod test {
         rl.cleanup();
         assert_eq!(rl.entries.len(), 0);
 
+    }
+    #[test]
+    fn test_meta() {
+        let root = Duration::from_millis(86_400_000);
+
+        MockClock::set_time(root);
+        
+        let mut meta = MetaRatelimit::new();
+        assert_eq!(meta.hit(1, 100, String::from("foo")), true);
+        assert_eq!(meta.hit(1, 100, String::from("bar")), true);
+        assert_eq!(meta.hit(1, 100, String::from("foo")), false);
+
+        assert_eq!(meta.hit(1, 101, String::from("foo")), true);
+        assert_eq!(meta.hit(1, 101, String::from("foo")), false);
+        assert_eq!(meta.hit(2, 101, String::from("foo")), true);
+        assert_eq!(meta.hit(2, 101, String::from("foo")), true);
+        assert_eq!(meta.hit(2, 101, String::from("foo")), false);
+    }
+
+    #[test]
+    fn test_meta_cleanup() {
+        let root = Duration::from_millis(86_400_000);
+
+        MockClock::set_time(root);
+
+        let mut meta = MetaRatelimit::new();
+        meta.hit(1, 1000, String::from("foo"));
+        meta.hit(10, 1_000, String::from("bar"));
+        meta.hit(8, 10_000, String::from("bar"));
+
+        MockClock::advance(Duration::from_secs(6));
+
+        assert_eq!(meta.cleanup(), 2);
     }
 }

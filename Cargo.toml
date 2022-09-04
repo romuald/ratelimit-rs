@@ -12,3 +12,5 @@ edition = "2021"
 [dependencies]
 mock_instant = "0.2.1"
 futures = "0.3"
+regex = "1"
+lazy_static = "1.4.0"
