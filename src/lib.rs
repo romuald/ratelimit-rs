@@ -1,8 +1,10 @@
+use std::char::MAX;
 use std::time::Duration;
 
 #[cfg(not(test))]
 use std::time::Instant;
 
+use futures::future::ok;
 #[cfg(test)]
 use mock_instant::Instant;
 
@@ -12,6 +14,7 @@ use std::convert::TryFrom;
 use std::cmp;
 
 const BLOCK_SIZE: usize = 64;
+const MAX_DURATION: u32 = 86400 * 48 * 1000; // 48 days, ~49 days being the number of milliseconds that fits in a u32
 
 struct RLEntry {
     epoch: Instant,
@@ -106,24 +109,50 @@ pub struct Ratelimit {
     entries: HashMap<String, RLEntry>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RatelimitInvalidError {
+    hits: u32,
+    duration: u32,
+}
+
+impl std::fmt::Display for RatelimitInvalidError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.hits == 0 {
+            write!(f, "Invalid ratelimit specification, hits must be greater than 0")    
+        } else if self.duration == 0 {
+            write!(f,  "Invalid ratelimit specification, duration must be greater than 0")
+        } else {
+            write!(f,  "Invalid ratelimit specification, duration must be less than {:?}", MAX_DURATION)
+        }
+    }
+}
+
 impl Ratelimit {
-    pub fn new(hits: u32, duration: u32) -> Ratelimit {
-        // Assert hits > 0
-        // Assert duration < 49 days
-        Ratelimit {
-            hits: hits,
-            duration: duration,
-            entries: HashMap::new(),
+    pub fn check_bounds(hits: u32, duration: u32) -> Result<(), RatelimitInvalidError> {
+        if hits == 0 || duration == 0 || duration > MAX_DURATION {
+            Err(RatelimitInvalidError{hits: hits, duration: duration})
+        } else {
+            Ok(())
         }
     }
 
-    pub fn hit(&mut self, name: &String) -> bool {
+    pub fn new(hits: u32, duration: u32) -> Result<Ratelimit, RatelimitInvalidError> {
+        Ratelimit::check_bounds(hits, duration)?;
+        
+        Ok(Ratelimit {
+            hits: hits,
+            duration: duration,
+            entries: HashMap::new(),
+        })
+    }
+
+    pub fn hit(&mut self, name: &str) -> bool {
         match self.entries.get_mut(name) {
             Some(entry) => entry.hit(self.hits, self.duration),
             None => {
                 let mut new_entry = RLEntry::new();
                 new_entry.hit(self.hits, self.duration);
-                self.entries.insert(name.clone(), new_entry);
+                self.entries.insert(name.to_string(), new_entry);
                 true // assumes that we are not limited to 0 hits
             }
         }
@@ -154,7 +183,6 @@ impl Ratelimit {
     }
 }
 
-
 pub struct MetaRatelimit {
     entries: HashMap<(u32, u32), Ratelimit>,
 }
@@ -164,12 +192,20 @@ impl MetaRatelimit {
         MetaRatelimit { entries: HashMap::new() }
     }
 
-    pub fn hit(&mut self, hits: u32, duration: u32, key: String) -> bool {
+    pub fn get(&mut self, hits: u32, duration: u32) -> Result<&mut Ratelimit, RatelimitInvalidError> {
+        if ! self.entries.contains_key(&(hits, duration)) {
+            let rl = Ratelimit::new(hits, duration)?;
+            self.entries.insert((hits, duration), rl);
+        }
+        Ok(self.entries.get_mut(&(hits, duration)).unwrap())
+    }
+
+    pub fn hit(&mut self, hits: u32, duration: u32, key: &str) -> bool {
+        // Warning: panics if called out of bounds
         match self.entries.get_mut(&(hits, duration)) {
             Some(e) =>  e.hit(&key),
             None => {
-                println!("new meta");
-                let mut rl = Ratelimit::new(hits, duration);
+                let mut rl = Ratelimit::new(hits, duration).unwrap();
                 let ret = rl.hit(&key);
                 self.entries.insert((hits, duration), rl);
                 ret
@@ -205,7 +241,7 @@ mod test {
 
         MockClock::set_time(root);
 
-        let mut rl = Ratelimit::new(10, rl_duration_ms);
+        let mut rl = Ratelimit::new(10, rl_duration_ms).unwrap();
         let st = String::from("test");
 
         // 10 hits OK in 1 second
@@ -232,7 +268,7 @@ mod test {
         // 
         MockClock::set_time(Duration::from_millis(200));
 
-        let mut rl = Ratelimit::new(1, 86400 * 1000);
+        let mut rl = Ratelimit::new(1, 86400 * 1000).unwrap();
         let st = String::from("test");
 
         MockClock::set_time(Duration::from_millis(200));
@@ -250,13 +286,13 @@ mod test {
 
         MockClock::set_time(root);
 
-        let mut rl = Ratelimit::new(10, rl_duration_ms);
+        let mut rl = Ratelimit::new(10, rl_duration_ms).unwrap();
 
-        rl.hit(&String::from("foo"));
-        rl.hit(&String::from("bar"));
+        rl.hit(&("foo"));
+        rl.hit(&("bar"));
 
         MockClock::advance(Duration::from_millis(59_000));
-        rl.hit(&String::from("bar"));
+        rl.hit(&("bar"));
 
         rl.cleanup();
         assert_eq!(rl.entries.len(), 2);
@@ -279,15 +315,15 @@ mod test {
         MockClock::set_time(root);
         
         let mut meta = MetaRatelimit::new();
-        assert_eq!(meta.hit(1, 100, String::from("foo")), true);
-        assert_eq!(meta.hit(1, 100, String::from("bar")), true);
-        assert_eq!(meta.hit(1, 100, String::from("foo")), false);
+        assert_eq!(meta.hit(1, 100, &("foo")), true);
+        assert_eq!(meta.hit(1, 100, &("bar")), true);
+        assert_eq!(meta.hit(1, 100, &("foo")), false);
 
-        assert_eq!(meta.hit(1, 101, String::from("foo")), true);
-        assert_eq!(meta.hit(1, 101, String::from("foo")), false);
-        assert_eq!(meta.hit(2, 101, String::from("foo")), true);
-        assert_eq!(meta.hit(2, 101, String::from("foo")), true);
-        assert_eq!(meta.hit(2, 101, String::from("foo")), false);
+        assert_eq!(meta.hit(1, 101, &("foo")), true);
+        assert_eq!(meta.hit(1, 101, &("foo")), false);
+        assert_eq!(meta.hit(2, 101, &("foo")), true);
+        assert_eq!(meta.hit(2, 101, &("foo")), true);
+        assert_eq!(meta.hit(2, 101, &("foo")), false);
     }
 
     #[test]
@@ -297,12 +333,23 @@ mod test {
         MockClock::set_time(root);
 
         let mut meta = MetaRatelimit::new();
-        meta.hit(1, 1000, String::from("foo"));
-        meta.hit(10, 1_000, String::from("bar"));
-        meta.hit(8, 10_000, String::from("bar"));
+        meta.hit(1, 1000, &("foo"));
+        meta.hit(10, 1_000, &("bar"));
+        meta.hit(8, 10_000, &("bar"));
 
         MockClock::advance(Duration::from_secs(6));
 
         assert_eq!(meta.cleanup(), 2);
+    }
+
+    #[test]
+    fn test_bounds() {
+        let fail = Ratelimit::new(0, 10);
+        assert!(fail.is_err());
+        let fail = Ratelimit::new(10, 0);
+        assert!(fail.is_err());
+
+        let fail = Ratelimit::new(10, 2 << 32 - 1);
+        assert!(fail.is_err());
     }
 }

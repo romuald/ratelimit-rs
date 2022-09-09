@@ -51,15 +51,14 @@ fn read_input(buffer: [u8; 512], len: usize) -> Result<(Command, String), ()> {
 }
 
 // "1/2_foo" => (1, 2_000, "foo")
-fn parse_specification(keyname: &String) -> Option<(u32, u32, String)> {
+fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"^(\d+)/(\d+)_(.+)").unwrap();
     }
 
-    let m = RE.captures(&keyname);
-    let caps = m?;
-    let hits = caps.get(1)?.as_str().to_string();
-    let seconds = caps.get(2)?.as_str().to_string();
+    let caps = RE.captures(&keyname)?;
+    let hits = caps.get(1)?.as_str();
+    let seconds = caps.get(2)?.as_str();
     let keyname = caps.get(3)?.as_str().to_string();
 
     let hits = hits.parse();
@@ -75,19 +74,20 @@ fn parse_specification(keyname: &String) -> Option<(u32, u32, String)> {
 
 #[test]
 fn test_parse_specification() {
-    assert_eq!(parse_specification(&"toto".to_string()), None);
-    assert_eq!(parse_specification(&"1zzb_zo".to_string()), None);
-    assert_eq!(parse_specification(&"1/2_toto".to_string()), Some((1, 2000, "toto".to_string())));
-    assert_eq!(parse_specification(&"80/200_bar".to_string()), Some((80, 200_000, "bar".to_string())));
-    assert_eq!(parse_specification(&"1/999999999999999_toto".to_string()), None);
-    assert_eq!(parse_specification(&"99999999999999/99_toto".to_string()), None);
+    assert_eq!(parse_specification(&"toto"), None);
+    assert_eq!(parse_specification(&"1zzb_zo"), None);
+    assert_eq!(parse_specification(&"1/2_toto"), Some((1, 2000, "toto".to_string())));
+    assert_eq!(parse_specification(&"80/200_bar"), Some((80, 200_000, "bar".to_string())));
+    assert_eq!(parse_specification(&"1/999999999999999_toto"), None);
+    assert_eq!(parse_specification(&"99999999999999/99_toto"), None);
 }
+
 
 fn main() -> io::Result<()> {
     task::block_on(async {
         let listener = TcpListener::bind("127.0.0.1:11211").await?;
 
-        let ratelimit_arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS)));
+        let ratelimit_arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
         let ratelimit_arc_main = ratelimit_arc.clone();
         let ratelimit_arc_cleanup = ratelimit_arc.clone();
 
@@ -125,6 +125,7 @@ fn main() -> io::Result<()> {
 
             task::spawn(async move {
                 let mut buffer = [0; 512];
+                let handle = std::thread::current();
 
                 loop {
                     // Read from TCP stream, up to n bytes
@@ -137,32 +138,46 @@ fn main() -> io::Result<()> {
                     if read == 0 {
                         break;
                     }
+                    let input = read_input(buffer, read);
 
-                    let response = match read_input(buffer, read) {
-                        // Bad input
-                        Err(()) => "ERR\r\n",
-                        Ok((command, key)) => {
-                            match command {
-                                Command::INCR => {
-                                    let spec = parse_specification(&key);
+                    if input.is_err() {
+                        let response = "ERR\r\n";
+                        if stream.write(response.as_bytes() ).await.is_ok() && stream.flush().await.is_ok() {
+                            continue;
+                        }
+                        break;
+                    }
 
-                                    match spec {
-                                        Some((hits, duration, keyname)) => {
-                                            let mut meta = meta_arc.lock().await;
-                                            if meta.hit(hits, duration, keyname) {
+                    let (command, keyname) = input.unwrap();
+                    
+                    let response =match command {
+                        Command::INCR => {
+                            match parse_specification(&keyname) {
+                                // specialized limit
+                                Some((hits, duration, keyname)) => {
+                                    let mut meta = meta_arc.lock().await;
+                                    let rl = meta.get(hits, duration);
+
+                                    match rl {
+                                        Ok(rl) => {
+                                            if rl.hit(&keyname) {
                                                 "0\r\n"
                                             } else {
                                                 "1\r\n"
                                             }
                                         },
-                                        None => {
-                                            let mut ratelimit = arc.lock().await;
-                                            if ratelimit.hit(&key.to_string()) {
-                                                "0\r\n"
-                                            } else {
-                                                "1\r\n"
-                                            }
-                                        }
+                                        // Invalid spec
+                                        Err(_) => "ERR\r\n",
+
+                                    }
+                                },
+                                // standard limit
+                                None => {
+                                    let mut ratelimit = arc.lock().await;
+                                    if ratelimit.hit(&keyname) {
+                                        "0\r\n"
+                                    } else {
+                                        "1\r\n"
                                     }
                                 }
                             }

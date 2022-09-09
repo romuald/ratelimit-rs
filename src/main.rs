@@ -35,7 +35,7 @@ impl Iterator for InputReader {
 
 
 fn main() -> io::Result<()> {
-    let mut rl = Ratelimit::new(5, 10000);
+    let mut rl = Ratelimit::new(5, 10000).unwrap();
 
 
     for keyname in inputreader() {
@@ -64,7 +64,7 @@ fn main() -> io::Result<()> {
 }
 fn demo() {
     
-    let mut rl = Ratelimit::new(50, 100);
+    let mut rl = Ratelimit::new(50, 100).unwrap();
     let mut b: bool;
 
     let name = &String::from("hello");
