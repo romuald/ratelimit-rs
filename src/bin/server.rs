@@ -82,6 +82,26 @@ fn test_parse_specification() {
     assert_eq!(parse_specification(&"99999999999999/99_toto"), None);
 }
 
+async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<MetaRatelimit>>) {
+    //println!("here?");
+    let dur = Duration::from_millis(CLEANUP_INTERVAL);
+
+    loop {
+        task::sleep(dur).await;
+
+        let start = Instant::now();
+        let c=  {
+            let mut ratelimit = rl_arc.lock().await;
+            ratelimit.cleanup()
+        } + {
+            let mut meta = meta_arc.lock().await;
+            meta.cleanup()
+        };
+        // Warning: lock + .await means the elapsed time may not be correct
+        let end = Instant::now();
+        println!("cleanup time: {:?} ({:?} removed)", (end - start), c);
+    }
+}
 
 fn main() -> io::Result<()> {
     task::block_on(async {
@@ -94,28 +114,8 @@ fn main() -> io::Result<()> {
         let meta_ratelimit_arc =  Arc::new(Mutex::new(MetaRatelimit::new()));
         let meta_ratelimit_arc_main = meta_ratelimit_arc.clone();
         let meta_ratelimit_arc_cleanup = meta_ratelimit_arc.clone();
-        
-        task::spawn(async move {
-            let arc = ratelimit_arc_cleanup.clone();
-            let meta_arc = meta_ratelimit_arc_cleanup.clone();
-            let dur = Duration::from_millis(CLEANUP_INTERVAL);
 
-            loop {
-                task::sleep(dur).await;
-
-                let start = Instant::now();
-                let c=  {
-                    let mut ratelimit = arc.lock().await;
-                    ratelimit.cleanup()
-                } + {
-                    let mut meta = meta_arc.lock().await;
-                    meta.cleanup()
-                };
-                // Warning: lock + .await means the elapsed time may not be correct
-                let end = Instant::now();
-                println!("cleanup time: {:?} ({:?} removed)", (end - start), c);
-            }
-        });
+        task::spawn(cleanup_timer(ratelimit_arc.clone(), meta_ratelimit_arc.clone()));
 
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
@@ -125,7 +125,6 @@ fn main() -> io::Result<()> {
 
             task::spawn(async move {
                 let mut buffer = [0; 512];
-                let handle = std::thread::current();
 
                 loop {
                     // Read from TCP stream, up to n bytes
@@ -156,7 +155,7 @@ fn main() -> io::Result<()> {
                                 // specialized limit
                                 Some((hits, duration, keyname)) => {
                                     let mut meta = meta_arc.lock().await;
-                                    let rl = meta.get(hits, duration);
+                                    let rl = meta.get_instance(hits, duration);
 
                                     match rl {
                                         Ok(rl) => {

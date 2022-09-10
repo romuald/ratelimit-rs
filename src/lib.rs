@@ -1,17 +1,14 @@
-use std::char::MAX;
+use std::cmp;
 use std::time::Duration;
 
 #[cfg(not(test))]
 use std::time::Instant;
 
-use futures::future::ok;
 #[cfg(test)]
 use mock_instant::Instant;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-
-use std::cmp;
 
 const BLOCK_SIZE: usize = 64;
 const MAX_DURATION: u32 = 86400 * 48 * 1000; // 48 days, ~49 days being the number of milliseconds that fits in a u32
@@ -192,7 +189,7 @@ impl MetaRatelimit {
         MetaRatelimit { entries: HashMap::new() }
     }
 
-    pub fn get(&mut self, hits: u32, duration: u32) -> Result<&mut Ratelimit, RatelimitInvalidError> {
+    pub fn get_instance(&mut self, hits: u32, duration: u32) -> Result<&mut Ratelimit, RatelimitInvalidError> {
         if ! self.entries.contains_key(&(hits, duration)) {
             let rl = Ratelimit::new(hits, duration)?;
             self.entries.insert((hits, duration), rl);
@@ -242,7 +239,7 @@ mod test {
         MockClock::set_time(root);
 
         let mut rl = Ratelimit::new(10, rl_duration_ms).unwrap();
-        let st = String::from("test");
+        let st = "test";
 
         // 10 hits OK in 1 second
         for _ in 0..10 {
@@ -269,7 +266,7 @@ mod test {
         MockClock::set_time(Duration::from_millis(200));
 
         let mut rl = Ratelimit::new(1, 86400 * 1000).unwrap();
-        let st = String::from("test");
+        let st = "test";
 
         MockClock::set_time(Duration::from_millis(200));
 
@@ -288,11 +285,11 @@ mod test {
 
         let mut rl = Ratelimit::new(10, rl_duration_ms).unwrap();
 
-        rl.hit(&("foo"));
-        rl.hit(&("bar"));
+        rl.hit("foo");
+        rl.hit("bar");
 
         MockClock::advance(Duration::from_millis(59_000));
-        rl.hit(&("bar"));
+        rl.hit("bar");
 
         rl.cleanup();
         assert_eq!(rl.entries.len(), 2);
@@ -308,23 +305,6 @@ mod test {
         assert_eq!(rl.entries.len(), 0);
 
     }
-    #[test]
-    fn test_meta() {
-        let root = Duration::from_millis(86_400_000);
-
-        MockClock::set_time(root);
-        
-        let mut meta = MetaRatelimit::new();
-        assert_eq!(meta.hit(1, 100, &("foo")), true);
-        assert_eq!(meta.hit(1, 100, &("bar")), true);
-        assert_eq!(meta.hit(1, 100, &("foo")), false);
-
-        assert_eq!(meta.hit(1, 101, &("foo")), true);
-        assert_eq!(meta.hit(1, 101, &("foo")), false);
-        assert_eq!(meta.hit(2, 101, &("foo")), true);
-        assert_eq!(meta.hit(2, 101, &("foo")), true);
-        assert_eq!(meta.hit(2, 101, &("foo")), false);
-    }
 
     #[test]
     fn test_meta_cleanup() {
@@ -333,9 +313,9 @@ mod test {
         MockClock::set_time(root);
 
         let mut meta = MetaRatelimit::new();
-        meta.hit(1, 1000, &("foo"));
-        meta.hit(10, 1_000, &("bar"));
-        meta.hit(8, 10_000, &("bar"));
+        meta.get_instance(1, 1000).unwrap().hit(("foo"));
+        meta.get_instance(10, 1_000).unwrap().hit("bar");
+        meta.get_instance(8, 10_000).unwrap().hit("bar");
 
         MockClock::advance(Duration::from_secs(6));
 
