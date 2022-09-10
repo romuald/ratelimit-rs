@@ -180,13 +180,13 @@ impl Ratelimit {
     }
 }
 
-pub struct MetaRatelimit {
+pub struct RatelimitCollection {
     entries: HashMap<(u32, u32), Ratelimit>,
 }
 
-impl MetaRatelimit {
-    pub fn new() -> MetaRatelimit {
-        MetaRatelimit { entries: HashMap::new() }
+impl RatelimitCollection {
+    pub fn new() -> RatelimitCollection {
+        RatelimitCollection { entries: HashMap::new() }
     }
 
     pub fn get_instance(&mut self, hits: u32, duration: u32) -> Result<&mut Ratelimit, RatelimitInvalidError> {
@@ -195,19 +195,6 @@ impl MetaRatelimit {
             self.entries.insert((hits, duration), rl);
         }
         Ok(self.entries.get_mut(&(hits, duration)).unwrap())
-    }
-
-    pub fn hit(&mut self, hits: u32, duration: u32, key: &str) -> bool {
-        // Warning: panics if called out of bounds
-        match self.entries.get_mut(&(hits, duration)) {
-            Some(e) =>  e.hit(&key),
-            None => {
-                let mut rl = Ratelimit::new(hits, duration).unwrap();
-                let ret = rl.hit(&key);
-                self.entries.insert((hits, duration), rl);
-                ret
-            }
-        }
     }
 
     pub fn cleanup(&mut self) -> usize {
@@ -312,7 +299,7 @@ mod test {
 
         MockClock::set_time(root);
 
-        let mut meta = MetaRatelimit::new();
+        let mut meta = RatelimitCollection::new();
         meta.get_instance(1, 1000).unwrap().hit(("foo"));
         meta.get_instance(10, 1_000).unwrap().hit("bar");
         meta.get_instance(8, 10_000).unwrap().hit("bar");

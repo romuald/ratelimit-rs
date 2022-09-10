@@ -15,7 +15,7 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 
 use std::time::Instant;
-use ratelimit_rs::{Ratelimit, MetaRatelimit};
+use ratelimit_rs::{Ratelimit, RatelimitCollection};
 
 const HITS: u32 = 5;
 const DURATION_MS: u32 = 10_000;
@@ -82,7 +82,7 @@ fn test_parse_specification() {
     assert_eq!(parse_specification(&"99999999999999/99_toto"), None);
 }
 
-async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<MetaRatelimit>>) {
+async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<RatelimitCollection>>) {
     //println!("here?");
     let dur = Duration::from_millis(CLEANUP_INTERVAL);
 
@@ -109,11 +109,9 @@ fn main() -> io::Result<()> {
 
         let ratelimit_arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
         let ratelimit_arc_main = ratelimit_arc.clone();
-        let ratelimit_arc_cleanup = ratelimit_arc.clone();
 
-        let meta_ratelimit_arc =  Arc::new(Mutex::new(MetaRatelimit::new()));
+        let meta_ratelimit_arc =  Arc::new(Mutex::new(RatelimitCollection::new()));
         let meta_ratelimit_arc_main = meta_ratelimit_arc.clone();
-        let meta_ratelimit_arc_cleanup = meta_ratelimit_arc.clone();
 
         task::spawn(cleanup_timer(ratelimit_arc.clone(), meta_ratelimit_arc.clone()));
 
