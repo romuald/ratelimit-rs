@@ -1,6 +1,9 @@
+
 use std::str;
+
 use std::time::Duration;
 
+use async_std::net::TcpStream;
 use lazy_static::lazy_static;
 
 use regex::Regex;
@@ -20,6 +23,114 @@ use ratelimit_rs::{Ratelimit, RatelimitCollection};
 const HITS: u32 = 5;
 const DURATION_MS: u32 = 10_000;
 const CLEANUP_INTERVAL: u64 = 10_000;
+
+struct StreamHandler {
+    stream: TcpStream,
+    ratelimit: Arc<Mutex<Ratelimit>>,
+    ratelimit_collection: Arc<Mutex<RatelimitCollection>>,
+}
+
+/// StreamHandler
+/// Handles a single TCP stream
+impl StreamHandler {
+    pub fn new(stream: TcpStream, ratelimit: &Arc<Mutex<Ratelimit>>, ratelimit_collection: &Arc<Mutex<RatelimitCollection>> ) -> StreamHandler {
+        StreamHandler {
+            stream: stream,
+            ratelimit: ratelimit.clone(),
+            ratelimit_collection: ratelimit_collection.clone(),
+        }
+    }
+
+    /// An "OK" response, request was within the limits (ironically 0)
+    async fn reply_ok(&mut self) -> bool {
+        self.write("0\r\n").await
+    }
+
+    /// An "not OK" response, request was outside the limits and should be limited (ironically 0)
+    async fn reply_ko(&mut self) -> bool {
+        self.write("1\r\n").await
+    }
+
+    /// An "error" response, the request was malformed or using a bad syntax
+    async fn reply_err(&mut self) -> bool {
+        self.write("ERR\r\n").await
+    }
+
+    /// Flush the binary response
+    async fn write(&mut self, response: &str) -> bool {
+        self.stream.write(response.as_bytes()).await.is_ok() && self.stream.flush().await.is_ok()
+    }
+
+    /// Handles an "incr" command
+    /// Will write the response on the output stream
+    /// Can return an error in case the keyname is invalid
+    async fn handle_incr(&mut self, keyname: &str) -> Result<(), Box<dyn std::error::Error>>{
+        let within_limits = match parse_specification(&keyname) {
+            Some((hits, duration, keyname)) => {
+                let mut meta = self.ratelimit_collection.lock().await;
+                let rl = meta.get_instance(hits, duration)?;
+                rl.hit(&keyname)
+            },
+            None => {
+                let mut ratelimit = self.ratelimit.lock().await;
+                ratelimit.hit(&keyname)
+            }
+        };
+
+        if within_limits {
+            self.reply_ok().await;
+        } else {
+            self.reply_ko().await;
+        }
+
+        Ok(())
+    }
+
+    /// Handles a single command (one read currently)
+    async fn handle_one(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut buffer = [0; 512];
+        let read = self.stream.read(&mut buffer).await?;
+
+        // Empty read: close the connection
+        if read == 0 {
+            return Err("".into());
+        }
+
+        let (command, keyname) = match read_input(buffer, read) {
+            Ok(x) => x,
+            Err(_) => {
+                self.reply_err().await;
+                return Ok(());
+            }
+        };
+
+        match command {
+            Command::INCR => {
+                if self.handle_incr(&keyname).await.is_err() {
+                    self.reply_err().await;
+                }
+            }
+            // Unknown command
+            // _ => {
+            //     self.reply_err().await;
+            // }
+        }
+
+        Ok(())
+    }
+
+    async fn main(&mut self) {
+        loop {
+            match self.handle_one().await {
+                Ok(()) => (),
+                Err(_) => {
+                    break;
+                },
+            }
+        }
+    }
+}
+
 
 enum Command {
     INCR,
@@ -99,7 +210,7 @@ async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<Rateli
         };
         // Warning: lock + .await means the elapsed time may not be correct
         let end = Instant::now();
-        println!("cleanup time: {:?} ({:?} removed)", (end - start), c);
+        // println!("cleanup time: {:?} ({:?} removed)", (end - start), c);
     }
 }
 
@@ -107,86 +218,17 @@ fn main() -> io::Result<()> {
     task::block_on(async {
         let listener = TcpListener::bind("127.0.0.1:11211").await?;
 
-        let ratelimit_arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
-        let ratelimit_arc_main = ratelimit_arc.clone();
+        let arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
+        let arc_collection =  Arc::new(Mutex::new(RatelimitCollection::new()));
 
-        let meta_ratelimit_arc =  Arc::new(Mutex::new(RatelimitCollection::new()));
-        let meta_ratelimit_arc_main = meta_ratelimit_arc.clone();
-
-        task::spawn(cleanup_timer(ratelimit_arc.clone(), meta_ratelimit_arc.clone()));
+        task::spawn(cleanup_timer(arc.clone(), arc_collection.clone()));
 
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
-            let mut stream = stream?;
-            let arc = ratelimit_arc_main.clone();
-            let meta_arc = meta_ratelimit_arc_main.clone();
-
-            task::spawn(async move {
-                let mut buffer = [0; 512];
-
-                loop {
-                    // Read from TCP stream, up to n bytes
-                    let read = match stream.read(&mut buffer).await {
-                        Ok(n) => n,
-                        Err(_) => break,
-                    };
-
-                    // Empty read: the remote side closed the connection
-                    if read == 0 {
-                        break;
-                    }
-                    let input = read_input(buffer, read);
-
-                    if input.is_err() {
-                        let response = "ERR\r\n";
-                        if stream.write(response.as_bytes() ).await.is_ok() && stream.flush().await.is_ok() {
-                            continue;
-                        }
-                        break;
-                    }
-
-                    let (command, keyname) = input.unwrap();
-                    
-                    let response =match command {
-                        Command::INCR => {
-                            match parse_specification(&keyname) {
-                                // specialized limit
-                                Some((hits, duration, keyname)) => {
-                                    let mut meta = meta_arc.lock().await;
-                                    let rl = meta.get_instance(hits, duration);
-
-                                    match rl {
-                                        Ok(rl) => {
-                                            if rl.hit(&keyname) {
-                                                "0\r\n"
-                                            } else {
-                                                "1\r\n"
-                                            }
-                                        },
-                                        // Invalid spec
-                                        Err(_) => "ERR\r\n",
-
-                                    }
-                                },
-                                // standard limit
-                                None => {
-                                    let mut ratelimit = arc.lock().await;
-                                    if ratelimit.hit(&keyname) {
-                                        "0\r\n"
-                                    } else {
-                                        "1\r\n"
-                                    }
-                                }
-                            }
-                        }
-                    };
-
-                    if stream.write(response.as_bytes() ).await.is_err() || stream.flush().await.is_err() {
-                        break;
-                    }
-                }
+            let mut handler = StreamHandler::new(stream?, &arc, &arc_collection);
+            task::spawn( async move {
+                handler.main().await
             });
-            
         }
         Ok(())
     })

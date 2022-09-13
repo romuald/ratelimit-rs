@@ -112,6 +112,8 @@ pub struct RatelimitInvalidError {
     duration: u32,
 }
 
+impl std::error::Error for RatelimitInvalidError {}
+
 impl std::fmt::Display for RatelimitInvalidError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.hits == 0 {
@@ -300,7 +302,7 @@ mod test {
         MockClock::set_time(root);
 
         let mut meta = RatelimitCollection::new();
-        meta.get_instance(1, 1000).unwrap().hit(("foo"));
+        meta.get_instance(1, 1000).unwrap().hit("foo");
         meta.get_instance(10, 1_000).unwrap().hit("bar");
         meta.get_instance(8, 10_000).unwrap().hit("bar");
 
