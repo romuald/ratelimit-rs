@@ -17,7 +17,7 @@ use async_std::sync::Arc;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 
-use std::time::Instant;
+// use std::time::Instant;
 use ratelimit_rs::{Ratelimit, RatelimitCollection};
 
 const HITS: u32 = 5;
@@ -200,8 +200,8 @@ async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<Rateli
     loop {
         task::sleep(dur).await;
 
-        let start = Instant::now();
-        let c=  {
+        // let start = Instant::now();
+        let _c=  {
             let mut ratelimit = rl_arc.lock().await;
             ratelimit.cleanup()
         } + {
@@ -209,7 +209,7 @@ async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<Rateli
             meta.cleanup()
         };
         // Warning: lock + .await means the elapsed time may not be correct
-        let end = Instant::now();
+        // let end = Instant::now();
         // println!("cleanup time: {:?} ({:?} removed)", (end - start), c);
     }
 }
