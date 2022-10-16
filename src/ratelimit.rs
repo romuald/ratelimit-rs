@@ -29,7 +29,7 @@ impl RLEntry {
     }
 
     // now is the difference since epoch
-    fn rebase(&mut self, now: u32) -> u32{
+    fn rebase(&mut self, now: u32) -> u32 {
         // let epoch = self.epoch;
 
         if now < u32::MAX / 2 {
@@ -43,7 +43,7 @@ impl RLEntry {
         println!("Values: {:?}", self.timestamps);
          */
 
-        let min :u32 = match self.timestamps.iter().filter(|x| **x > 0).min() {
+        let min: u32 = match self.timestamps.iter().filter(|x| **x > 0).min() {
             Some(x) => *x - 1,
             None => 0,
         };
@@ -117,11 +117,21 @@ impl std::error::Error for RatelimitInvalidError {}
 impl std::fmt::Display for RatelimitInvalidError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.hits == 0 {
-            write!(f, "Invalid ratelimit specification, hits must be greater than 0")    
+            write!(
+                f,
+                "Invalid ratelimit specification, hits must be greater than 0"
+            )
         } else if self.duration == 0 {
-            write!(f,  "Invalid ratelimit specification, duration must be greater than 0")
+            write!(
+                f,
+                "Invalid ratelimit specification, duration must be greater than 0"
+            )
         } else {
-            write!(f,  "Invalid ratelimit specification, duration must be less than {:?}", MAX_DURATION)
+            write!(
+                f,
+                "Invalid ratelimit specification, duration must be less than {:?}",
+                MAX_DURATION
+            )
         }
     }
 }
@@ -129,7 +139,10 @@ impl std::fmt::Display for RatelimitInvalidError {
 impl Ratelimit {
     pub fn check_bounds(hits: u32, duration: u32) -> Result<(), RatelimitInvalidError> {
         if hits == 0 || duration == 0 || duration > MAX_DURATION {
-            Err(RatelimitInvalidError{hits: hits, duration: duration})
+            Err(RatelimitInvalidError {
+                hits: hits,
+                duration: duration,
+            })
         } else {
             Ok(())
         }
@@ -137,7 +150,7 @@ impl Ratelimit {
 
     pub fn new(hits: u32, duration: u32) -> Result<Ratelimit, RatelimitInvalidError> {
         Ratelimit::check_bounds(hits, duration)?;
-        
+
         Ok(Ratelimit {
             hits: hits,
             duration: duration,
@@ -159,7 +172,7 @@ impl Ratelimit {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
-    
+
     pub fn cleanup(&mut self) -> usize {
         self.cleanup_at(Instant::now())
     }
@@ -187,11 +200,10 @@ impl Ratelimit {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use mock_instant::{MockClock};
+    use mock_instant::MockClock;
 
     #[test]
     fn test_base_process() {
@@ -221,14 +233,12 @@ mod test {
         MockClock::set_time(root + rl_duration - ms1);
         assert_eq!(rl.hit(&st), false);
 
-        // 
         MockClock::advance(Duration::from_millis(1));
         assert_eq!(rl.hit(&st), true);
     }
 
     #[test]
     fn test_overflow() {
-        // 
         MockClock::set_time(Duration::from_millis(200));
 
         let mut rl = Ratelimit::new(1, 86400 * 1000).unwrap();
@@ -269,7 +279,6 @@ mod test {
 
         rl.cleanup();
         assert_eq!(rl.entries.len(), 0);
-
     }
 
     #[test]

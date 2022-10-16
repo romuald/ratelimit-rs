@@ -1,6 +1,6 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
-use std::io;
 use ratelimit_rs::Ratelimit;
+use std::io;
 use std::time::{Duration, Instant};
 
 use std::thread::sleep;
@@ -33,10 +33,8 @@ impl Iterator for InputReader {
     }
 }
 
-
 fn main() -> io::Result<()> {
     let mut rl = Ratelimit::new(5, 10000).unwrap();
-
 
     for keyname in inputreader() {
         if rl.hit(&keyname) {
@@ -44,7 +42,7 @@ fn main() -> io::Result<()> {
         } else {
             println!("Not OK for {:?}", keyname);
         }
-    };
+    }
 
     /*
     loop {
@@ -63,7 +61,6 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 fn demo() {
-    
     let mut rl = Ratelimit::new(50, 100).unwrap();
     let mut b: bool;
 

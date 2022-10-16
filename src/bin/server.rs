@@ -1,19 +1,11 @@
-
-use std::str;
-
 use std::time::Duration;
 
-use async_std::net::TcpStream;
-use lazy_static::lazy_static;
-
 use ratelimit_rs::StreamHandler;
-use regex::Regex;
 
 use async_std::io;
 use async_std::net::TcpListener;
-use async_std::prelude::*;
-use async_std::task;
 use async_std::sync::Arc;
+use async_std::task;
 
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
@@ -25,7 +17,6 @@ const HITS: u32 = 5;
 const DURATION_MS: u32 = 10_000;
 const CLEANUP_INTERVAL: u64 = 10_000;
 
-
 async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<RatelimitCollection>>) {
     //println!("here?");
     let dur = Duration::from_millis(CLEANUP_INTERVAL);
@@ -34,7 +25,7 @@ async fn cleanup_timer(rl_arc: Arc<Mutex<Ratelimit>>, meta_arc: Arc<Mutex<Rateli
         task::sleep(dur).await;
 
         // let start = Instant::now();
-        let _c=  {
+        let _c = {
             let mut ratelimit = rl_arc.lock().await;
             ratelimit.cleanup()
         } + {
@@ -51,22 +42,19 @@ fn main() -> io::Result<()> {
     task::block_on(async {
         let listener = TcpListener::bind("127.0.0.1:11211").await?;
 
-        let arc =  Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
-        let arc_collection =  Arc::new(Mutex::new(RatelimitCollection::new()));
+        let arc = Arc::new(Mutex::new(Ratelimit::new(HITS, DURATION_MS).unwrap()));
+        let arc_collection = Arc::new(Mutex::new(RatelimitCollection::new()));
 
         task::spawn(cleanup_timer(arc.clone(), arc_collection.clone()));
 
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let mut handler = StreamHandler::new(stream?, &arc, &arc_collection);
-            task::spawn( async move {
-                handler.main().await
-            });
+            task::spawn(async move { handler.main().await });
         }
         Ok(())
     })
 }
-
 
 #[cfg(test)]
 mod test {

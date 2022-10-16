@@ -1,23 +1,16 @@
 use std::str;
 
-use std::time::Duration;
-
 use async_std::net::TcpStream;
 use lazy_static::lazy_static;
 
 use regex::Regex;
 
-use async_std::io;
-use async_std::net::TcpListener;
 use async_std::prelude::*;
-use async_std::task;
 use async_std::sync::Arc;
 
 use futures::lock::Mutex;
-use futures::stream::StreamExt;
 
 use crate::{Ratelimit, RatelimitCollection};
-
 
 enum Command {
     INCR,
@@ -32,7 +25,11 @@ pub struct StreamHandler {
 /// StreamHandler
 /// Handles a single TCP stream
 impl StreamHandler {
-    pub fn new(stream: TcpStream, ratelimit: &Arc<Mutex<Ratelimit>>, ratelimit_collection: &Arc<Mutex<RatelimitCollection>> ) -> StreamHandler {
+    pub fn new(
+        stream: TcpStream,
+        ratelimit: &Arc<Mutex<Ratelimit>>,
+        ratelimit_collection: &Arc<Mutex<RatelimitCollection>>,
+    ) -> StreamHandler {
         StreamHandler {
             stream,
             ratelimit: ratelimit.clone(),
@@ -63,13 +60,13 @@ impl StreamHandler {
     /// Handles an "incr" command
     /// Will write the response on the output stream
     /// Can return an error in case the keyname is invalid
-    async fn handle_incr(&mut self, keyname: &str) -> Result<(), Box<dyn std::error::Error>>{
+    async fn handle_incr(&mut self, keyname: &str) -> Result<(), Box<dyn std::error::Error>> {
         let within_limits = match parse_specification(&keyname) {
             Some((hits, duration, keyname)) => {
                 let mut meta = self.ratelimit_collection.lock().await;
                 let rl = meta.get_instance(hits, duration)?;
                 rl.hit(&keyname)
-            },
+            }
             None => {
                 let mut ratelimit = self.ratelimit.lock().await;
                 ratelimit.hit(&keyname)
@@ -108,11 +105,10 @@ impl StreamHandler {
                 if self.handle_incr(&keyname).await.is_err() {
                     self.reply_err().await;
                 }
-            }
-            // Unknown command
-            // _ => {
-            //     self.reply_err().await;
-            // }
+            } // Unknown command
+              // _ => {
+              //     self.reply_err().await;
+              // }
         }
 
         Ok(())
@@ -124,7 +120,7 @@ impl StreamHandler {
                 Ok(()) => (),
                 Err(_) => {
                     break;
-                },
+                }
             }
         }
     }
@@ -133,25 +129,27 @@ impl StreamHandler {
 fn read_input(buffer: [u8; 512], len: usize) -> Result<(Command, String), ()> {
     let input = match str::from_utf8(&buffer[0..len]) {
         Ok(v) => v,
-        Err(_) => return Err(())
-    }.trim();
+        Err(_) => return Err(()),
+    }
+    .trim();
 
     let (command, key) = {
         let mut split = input.split(" ");
         (
-        match split.next() {
+            match split.next() {
                 Some(x) => x.trim(),
                 None => return Err(()),
             },
-        match split.next() {
-            Some(x) => x.trim(),
-            None => return Err(()),
-        })
+            match split.next() {
+                Some(x) => x.trim(),
+                None => return Err(()),
+            },
+        )
     };
 
     match command {
         "incr" => Ok((Command::INCR, String::from(key))),
-        _ => Err(())
+        _ => Err(()),
     }
 }
 
@@ -176,13 +174,18 @@ fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
     }
 }
 
-
 #[test]
 fn test_parse_specification() {
     assert_eq!(parse_specification(&"toto"), None);
     assert_eq!(parse_specification(&"1zzb_zo"), None);
-    assert_eq!(parse_specification(&"1/2_toto"), Some((1, 2000, "toto".to_string())));
-    assert_eq!(parse_specification(&"80/200_bar"), Some((80, 200_000, "bar".to_string())));
+    assert_eq!(
+        parse_specification(&"1/2_toto"),
+        Some((1, 2000, "toto".to_string()))
+    );
+    assert_eq!(
+        parse_specification(&"80/200_bar"),
+        Some((80, 200_000, "bar".to_string()))
+    );
     assert_eq!(parse_specification(&"1/999999999999999_toto"), None);
     assert_eq!(parse_specification(&"99999999999999/99_toto"), None);
 }
