@@ -1,4 +1,11 @@
+#[cfg(not(test))]
+use std::time::Instant;
+
+#[cfg(test)]
+use mock_instant::Instant;
+
 use std::collections::HashMap;
+use rayon::prelude::*;
 
 use crate::ratelimit::{Ratelimit,RatelimitInvalidError};
 
@@ -20,13 +27,10 @@ impl RatelimitCollection {
     }
 
     pub fn cleanup(&mut self) -> usize {
-        let mut sum = 0;
-
-        for (_, val) in self.entries.iter_mut() {
-            sum += val.cleanup();
-        }
-
-        sum
+        let now = Instant::now();
+        self.entries.par_iter_mut().map(|(_, val)| {
+            val.cleanup_at(now)
+        }).sum()
     }
 }
 

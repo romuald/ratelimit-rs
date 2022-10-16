@@ -159,9 +159,14 @@ impl Ratelimit {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
-
+    
     pub fn cleanup(&mut self) -> usize {
-        let min = Instant::now() - Duration::from_millis(1000 + u64::from(self.duration));
+        self.cleanup_at(Instant::now())
+    }
+
+    // Used by the collection mod so now is calculated outisde a thread and can be properly mocked
+    pub fn cleanup_at(&mut self, now: Instant) -> usize {
+        let min = now - Duration::from_millis(1000 + u64::from(self.duration));
         let before = self.entries.len();
 
         self.entries.retain(|_, v| {
