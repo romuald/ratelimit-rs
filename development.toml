@@ -1,0 +1,19 @@
+[ratelimit]
+# Number of hits
+hits = 5
+# … in that given interval
+seconds = 10
+
+# interval between cleanups of unused entries
+cleanup_interval = 30
+
+# Allow use of dynamic, client-determined, limits
+dynamic_limits = true
+
+[handlers.memcache]
+enabled = true
+listen = [
+    "127.0.0.1:11211",
+    "[::1]:11211",
+]
+
