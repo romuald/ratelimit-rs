@@ -1,7 +1,5 @@
-use std::{fs, net::SocketAddr, time::Duration};
-
-use serde_derive::Deserialize;
-use toml;
+use std::process::exit;
+use std::{net::SocketAddr, time::Duration};
 
 use ratelimit_rs::StreamHandler;
 
@@ -13,7 +11,7 @@ use async_std::task;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 
-use ratelimit_rs::{Ratelimit, RatelimitCollection};
+use ratelimit_rs::{Ratelimit, RatelimitCollection, Configuration};
 
 async fn cleanup_timer(
     duration: Duration,
@@ -39,50 +37,29 @@ async fn cleanup_timer(
     }
 }
 
-#[derive(Deserialize, Debug)]
-struct RLConfig {
-    hits: u32,
-    seconds: u32,
-
-    cleanup_interval: u32,
-}
-
-#[derive(Deserialize, Debug)]
-struct MCacheConfig {
-    listen: Vec<String>,
-}
-
-#[derive(Deserialize, Debug)]
-struct HandlersConfig {
-    memcache: MCacheConfig,
-}
-
-#[derive(Deserialize, Debug)]
-struct Config {
-    ratelimit: RLConfig,
-    handlers: HandlersConfig,
-}
-
 fn main() -> io::Result<()> {
-    let conf_str = fs::read_to_string("development.toml")?;
-    let config: Config = toml::from_str(&conf_str)?;
+    let config = Configuration::from_argv()?;
 
-    let ratelimit = Ratelimit::new(config.ratelimit.hits, config.ratelimit.seconds * 1000).unwrap();
+    let ratelimit = Ratelimit::new(config.ratelimit.hits, (config.ratelimit.seconds * 1000f64) as u32).unwrap();
 
     let arc = Arc::new(Mutex::new(ratelimit));
     let arc_collection = Arc::new(Mutex::new(RatelimitCollection::new()));
 
-    let addresses: Vec<SocketAddr> = config
-        .handlers
-        .memcache
+    let memcache_config = config.handlers.memcache;
+
+    let addresses: Vec<SocketAddr> = memcache_config
         .listen
-        .clone()
         .iter()
         .map(|x| x.parse().unwrap())
         .collect();
 
+    if !memcache_config.enabled {
+        eprintln!("No server is enabled");
+        exit(1);
+    }
     if addresses.len() == 0 {
-        return Ok(()); // Not ok
+        eprintln!("No listen addresses configured for memcache server");
+        exit(1);
     }
 
     let cleanup_duration = Duration::from_secs(config.ratelimit.cleanup_interval as u64);
