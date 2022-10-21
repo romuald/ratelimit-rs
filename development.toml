@@ -7,7 +7,7 @@ seconds = 10
 # interval between cleanups of unused entries
 cleanup_interval = 30
 
-# Allow use of dynamic, client-determined, limits
+# Allow use of dynamic, client-determined, limits (XXX unused yet)
 dynamic_limits = true
 
 [handlers.memcache]
