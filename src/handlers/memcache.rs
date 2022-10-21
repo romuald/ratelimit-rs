@@ -196,7 +196,15 @@ fn read_input(buffer: [u8; 512], len: usize) -> Result<(Command, String), ()> {
     }
 }
 
-// "1/2_foo" => (1, 2_000, "foo")
+/// Parse a specification returning: `(hits, duration, keyname)`
+///
+/// ## Example
+///
+/// ```ignored
+/// let keyname = "1/2_foo";
+/// let result = parse_specification(keyname);
+/// assert_eq!(Some((1, 2_000, "foo")), result);
+/// ```
 fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"^(\d+)/(\d+)_(.+)").unwrap();

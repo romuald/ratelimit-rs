@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 const BLOCK_SIZE: usize = 64;
-const MAX_DURATION: u32 = 86400 * 48 * 1000; // 48 days, ~49 days being the number of milliseconds that fits in a u32
 
+/// 48 days, ~49 days being the number of milliseconds that fits in a u32
+const MAX_DURATION: u32 = 86400 * 48 * 1000;
 struct RLEntry {
     epoch: Instant,
     index: u32,
@@ -28,7 +29,7 @@ impl RLEntry {
         }
     }
 
-    // now is the difference since epoch
+    /// `now` is the difference since epoch
     fn rebase(&mut self, now: u32) -> u32 {
         // let epoch = self.epoch;
 
@@ -177,7 +178,7 @@ impl Ratelimit {
         self.cleanup_at(Instant::now())
     }
 
-    // Used by the collection mod so now is calculated outisde a thread and can be properly mocked
+    /// Used by the collection mod so now is calculated outside a thread and can be properly mocked
     pub fn cleanup_at(&mut self, now: Instant) -> usize {
         let min = now - Duration::from_millis(1000 + u64::from(self.duration));
         let before = self.entries.len();
@@ -205,10 +206,11 @@ mod test {
     use super::*;
     use mock_instant::MockClock;
 
+    /// Basic test "suite", hitting the rate limit within a
+    /// specific time-frame will either return true or false
     #[test]
     fn test_base_process() {
-        // Basic test "suite", hitting the ratelimit within a
-        // specific timeframe will either return true or false
+
         let ms1 = Duration::from_millis(1);
         let root = ms1.clone();
         let rl_duration_ms = 2_000;
