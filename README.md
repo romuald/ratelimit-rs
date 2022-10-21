@@ -25,7 +25,7 @@ The servers defaults listen on the port memcached port (11211), the only exposed
 **Warning** the responses are **reversed**, a `0` means success while a `1` means that the limit was reached.
 This is to allow memcache clients to ignore an unreachable / unresponsive server by default, for example:
 
-````
+```python
 if client.incr("client-${remote_addr}", timeout=0.02):
    return HTTP429()
 ```
@@ -41,7 +41,7 @@ For example:
 All limits are independants of each other
 
 
-```
+```bash
 % nc -v localhost 11211
 
 incr foo
@@ -56,5 +56,4 @@ incr 1/1_foo
 0
 incr 80/60_something
 0
-
 ```
