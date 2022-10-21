@@ -74,7 +74,7 @@ impl RLEntry {
             if index == self.timestamps.len() {
                 let max = usize::try_from(size).unwrap();
                 let increment = cmp::min(BLOCK_SIZE, max - index);
-                self.timestamps.extend(vec![0; increment]);
+                self.timestamps.resize(self.timestamps.len() + increment, 0);
             }
         }
 
