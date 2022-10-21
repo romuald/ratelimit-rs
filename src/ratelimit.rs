@@ -67,7 +67,7 @@ impl RLEntry {
     /// duration is the duration in milliseconds for which the hits are allowed
     fn hit(&mut self, size: u32, duration: u32) -> bool {
         let diff = Instant::now().duration_since(self.epoch);
-        let mut now = u32::try_from(diff.as_millis()).unwrap();
+        let now = u32::try_from(diff.as_millis()).unwrap();
 
         let index = usize::try_from(self.index).unwrap();
         {
@@ -78,7 +78,7 @@ impl RLEntry {
             }
         }
 
-        now = self.rebase(now);
+        let now = self.rebase(now);
 
         let previous = self.timestamps[index];
         //println!("ts: {:?}, now: {:?}, diff: {:?}", self.timestamps, now, diff);
