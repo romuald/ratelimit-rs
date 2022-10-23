@@ -122,8 +122,24 @@ impl StreamHandler {
         Ok(())
     }
 
-    pub async fn main(&mut self, stream: &mut (impl Read + Write + Unpin)) {
-        while self.handle_one(stream).await.is_ok() {}
+    pub async fn main(&self, stream: &mut impl AsyncStream) {
+        #[cfg(test)]
+        let mut tmax = 1_000;
+
+        loop {
+            #[cfg(test)]
+            {
+                // Avoid an infinite loop in tests
+                tmax -= 1;
+                if tmax == 0 {
+                    break;
+                }
+            }
+
+            if self.handle_one(stream).await.is_err() {
+                break;
+            }
+        }
     }
 }
 
