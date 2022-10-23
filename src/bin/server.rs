@@ -11,7 +11,7 @@ use async_std::task;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 
-use ratelimit_rs::{Ratelimit, RatelimitCollection, Configuration};
+use ratelimit_rs::{Configuration, Ratelimit, RatelimitCollection};
 
 async fn cleanup_timer(
     duration: Duration,
@@ -40,10 +40,14 @@ async fn cleanup_timer(
 fn main() -> io::Result<()> {
     let config = Configuration::from_argv()?;
 
-    let ratelimit = Ratelimit::new(config.ratelimit.hits, (config.ratelimit.seconds * 1000f64) as u32).unwrap();
+    let ratelimit = Ratelimit::new(
+        config.ratelimit.hits,
+        (config.ratelimit.seconds * 1000f64) as u32,
+    )
+    .unwrap();
 
     let arc = Arc::new(Mutex::new(ratelimit));
-    let arc_collection = Arc::new(Mutex::new(RatelimitCollection::new()));
+    let arc_collection = Arc::new(Mutex::new(RatelimitCollection::default()));
 
     let memcache_config = config.handlers.memcache;
 
@@ -57,7 +61,7 @@ fn main() -> io::Result<()> {
         eprintln!("No server is enabled");
         exit(1);
     }
-    if addresses.len() == 0 {
+    if addresses.is_empty() {
         eprintln!("No listen addresses configured for memcache server");
         exit(1);
     }
@@ -75,7 +79,7 @@ fn main() -> io::Result<()> {
 
         while let Some(stream) = incoming.next().await {
             let mut stream = stream?;
-            let mut handler = StreamHandler::new( &arc, &arc_collection);
+            let mut handler = StreamHandler::new(&arc, &arc_collection);
             task::spawn(async move { handler.main(&mut stream).await });
         }
         Ok(())

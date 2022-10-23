@@ -9,17 +9,12 @@ use std::collections::HashMap;
 
 use crate::ratelimit::{Ratelimit, RatelimitInvalidError};
 
+#[derive(Default)]
 pub struct RatelimitCollection {
     entries: HashMap<(u32, u32), Ratelimit>,
 }
 
 impl RatelimitCollection {
-    pub fn new() -> RatelimitCollection {
-        RatelimitCollection {
-            entries: HashMap::new(),
-        }
-    }
-
     pub fn get_instance(
         &mut self,
         hits: u32,
@@ -29,6 +24,7 @@ impl RatelimitCollection {
             let rl = Ratelimit::new(hits, duration)?;
             self.entries.insert((hits, duration), rl);
         }
+
         Ok(self.entries.get_mut(&(hits, duration)).unwrap())
     }
 
@@ -53,7 +49,7 @@ mod test {
 
         MockClock::set_time(root);
 
-        let mut meta = RatelimitCollection::new();
+        let mut meta = RatelimitCollection::default();
         meta.get_instance(1, 1000).unwrap().hit("foo");
         meta.get_instance(10, 1_000).unwrap().hit("bar");
         meta.get_instance(8, 10_000).unwrap().hit("bar");

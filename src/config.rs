@@ -23,13 +23,12 @@ pub struct HandlersConfig {
 
 #[derive(Deserialize, Debug)]
 pub struct Configuration {
-   pub ratelimit: RLConfig,
-   pub handlers: HandlersConfig,
+    pub ratelimit: RLConfig,
+    pub handlers: HandlersConfig,
 }
 
-
 impl Configuration {
-    pub fn from_argv()  -> Result<Configuration, Error> {
+    pub fn from_argv() -> Result<Configuration, Error> {
         let args: Vec<String> = env::args().collect();
         let filename = match args.get(1) {
             Some(name) => name,

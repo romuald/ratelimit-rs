@@ -7,13 +7,13 @@ use regex::Regex;
 use async_std::prelude::*;
 use async_std::sync::Arc;
 
-use futures::lock::Mutex;
 use async_std::io::{Read, Write};
+use futures::lock::Mutex;
 
 use crate::{Ratelimit, RatelimitCollection};
 
 enum Command {
-    INCR(String),
+    Incr(String),
 }
 
 pub struct StreamHandler {
@@ -57,8 +57,12 @@ impl StreamHandler {
     /// Handles an "incr" command
     /// Will write the response on the output stream
     /// Can return an error in case the keyname is invalid
-    async fn handle_incr(&mut self, keyname: &str, stream: &mut (impl Read + Write + Unpin)) -> Result<(), Box<dyn std::error::Error>> {
-        let within_limits = match parse_specification(&keyname) {
+    async fn handle_incr(
+        &mut self,
+        keyname: &str,
+        stream: &mut (impl Read + Write + Unpin),
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let within_limits = match parse_specification(keyname) {
             Some((hits, duration, keyname)) => {
                 let mut meta = self.ratelimit_collection.lock().await;
                 let rl = meta.get_instance(hits, duration)?;
@@ -66,7 +70,7 @@ impl StreamHandler {
             }
             None => {
                 let mut ratelimit = self.ratelimit.lock().await;
-                ratelimit.hit(&keyname)
+                ratelimit.hit(keyname)
             }
         };
 
@@ -80,7 +84,10 @@ impl StreamHandler {
     }
 
     /// Handles a single command (one read currently)
-    async fn handle_one(&mut self, stream: &mut (impl Read + Write + Unpin)) -> Result<(), Box<dyn std::error::Error>> {
+    async fn handle_one(
+        &mut self,
+        stream: &mut (impl Read + Write + Unpin),
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buffer = [0; 512];
         let read = stream.read(&mut buffer).await?;
 
@@ -98,8 +105,8 @@ impl StreamHandler {
         };
 
         match command {
-            Command::INCR(ref keyname) => {
-                if self.handle_incr(&keyname, stream).await.is_err() {
+            Command::Incr(ref keyname) => {
+                if self.handle_incr(keyname, stream).await.is_err() {
                     self.reply_err(stream).await;
                 }
             } // Unknown command
@@ -112,14 +119,7 @@ impl StreamHandler {
     }
 
     pub async fn main(&mut self, stream: &mut (impl Read + Write + Unpin)) {
-        loop {
-            match self.handle_one(stream).await {
-                Ok(()) => (),
-                Err(_) => {
-                    break;
-                }
-            }
-        }
+        while self.handle_one(stream).await.is_ok() {}
     }
 }
 
@@ -131,7 +131,7 @@ fn read_input(buffer: [u8; 512], len: usize) -> Result<Command, ()> {
     .trim();
 
     let (command, key) = {
-        let mut split = input.split(" ");
+        let mut split = input.split(' ');
         (
             match split.next() {
                 Some(x) => x.trim(),
@@ -145,7 +145,7 @@ fn read_input(buffer: [u8; 512], len: usize) -> Result<Command, ()> {
     };
 
     match command {
-        "incr" => Ok(Command::INCR(String::from(key))),
+        "incr" => Ok(Command::Incr(String::from(key))),
         _ => Err(()),
     }
 }
@@ -164,7 +164,7 @@ fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
         static ref RE: Regex = Regex::new(r"^(\d+)/(\d+)_(.+)").unwrap();
     }
 
-    let caps = RE.captures(&keyname)?;
+    let caps = RE.captures(keyname)?;
     let hits = caps.get(1)?.as_str();
     let seconds = caps.get(2)?.as_str();
     let keyname = caps.get(3)?.as_str().to_string();
@@ -172,14 +172,14 @@ fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
     let hits = hits.parse();
     let seconds = seconds.parse::<u32>();
 
-    if hits.is_ok() && seconds.is_ok() {
-        Some((hits.unwrap(), seconds.unwrap() * 1000, keyname))
+    if let (Ok(hits), Ok(seconds)) = (hits, seconds) {
+        Some((hits, seconds * 1000, keyname))
     } else {
         None
     }
 }
 
-/* 
+/*
 
 enum ProtocolResponse {
     Valid(String),
@@ -228,33 +228,31 @@ async fn handle_stream(stream: &mut TcpStream) {
             break;
         }
     }
-    
-} 
+
+}
 */
-
-
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use mock_instant::MockClock;
     use crate::testing::MockTcpStream;
+    use mock_instant::MockClock;
 
     #[test]
     fn test_parse_specification() {
-        assert_eq!(parse_specification(&"toto"), None);
-        assert_eq!(parse_specification(&"1zzb_zo"), None);
+        assert_eq!(parse_specification("toto"), None);
+        assert_eq!(parse_specification("1zzb_zo"), None);
         assert_eq!(
-            parse_specification(&"1/2_toto"),
+            parse_specification("1/2_toto"),
             Some((1, 2000, "toto".to_string()))
         );
         assert_eq!(
-            parse_specification(&"80/200_bar"),
+            parse_specification("80/200_bar"),
             Some((80, 200_000, "bar".to_string()))
         );
-        assert_eq!(parse_specification(&"1/999999999999999_toto"), None);
-        assert_eq!(parse_specification(&"99999999999999/99_toto"), None);
+        assert_eq!(parse_specification("1/999999999999999_toto"), None);
+        assert_eq!(parse_specification("99999999999999/99_toto"), None);
     }
 
     #[async_std::test]
@@ -263,8 +261,8 @@ mod test {
         MockClock::set_time(root);
 
         let rl = Arc::new(Mutex::new(Ratelimit::new(1, 1).unwrap()));
-        let xrl = Arc::new(Mutex::new(RatelimitCollection::new()));
-        let mut handler = StreamHandler::new( &rl, &xrl);
+        let xrl = Arc::new(Mutex::new(RatelimitCollection::default()));
+        let mut handler = StreamHandler::new(&rl, &xrl);
 
         let mut stream = MockTcpStream::from_rdata("incr zzz\r\n".to_string());
 

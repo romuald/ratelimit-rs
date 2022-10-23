@@ -67,14 +67,14 @@ fn demo() {
     let name = &String::from("hello");
 
     for _i in 0..3 {
-        b = rl.hit(&name);
+        b = rl.hit(name);
         println!("@{:?}, {:?}", line!(), b);
     }
     sleep(Duration::from_millis(150));
 
-    b = rl.hit(&name);
+    b = rl.hit(name);
     println!("@{:?}, {:?}", line!(), b);
 
-    b = rl.hit(&name);
+    b = rl.hit(name);
     println!("@{:?}, {:?}", line!(), b);
 }

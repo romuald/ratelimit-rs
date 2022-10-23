@@ -1,7 +1,7 @@
 mod collection;
+mod config;
 mod handlers;
 mod ratelimit;
-mod config;
 
 #[cfg(test)]
 mod testing;
@@ -9,5 +9,5 @@ mod testing;
 pub use crate::collection::RatelimitCollection;
 pub use crate::ratelimit::{Ratelimit, RatelimitInvalidError};
 
-pub use crate::handlers::memcache::StreamHandler;
 pub use crate::config::Configuration;
+pub use crate::handlers::memcache::StreamHandler;

@@ -1,23 +1,20 @@
-
+#[derive(Default)]
 pub struct MockTcpStream {
     read_data: Vec<u8>,
     write_data: Vec<u8>,
 }
 use async_std::io::{Read, Write};
-use std::cmp::min;
-use std::pin::Pin;
 use futures::io::Error;
 use futures::task::{Context, Poll};
-
-impl Default for MockTcpStream {
-    fn default() -> Self {
-        Self { read_data: vec![], write_data: vec![] }
-    }
-}
+use std::cmp::min;
+use std::pin::Pin;
 
 impl MockTcpStream {
     pub fn from_rdata(data: String) -> MockTcpStream {
-        MockTcpStream { read_data: data.as_bytes().into(), write_data: vec![] }
+        MockTcpStream {
+            read_data: data.as_bytes().into(),
+            write_data: vec![],
+        }
     }
 
     // Returns the data that was written, as string, clearing it

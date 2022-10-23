@@ -60,7 +60,7 @@ impl RLEntry {
         /* println!("new values: {:?}", self.timestamps);
         println!("min: {:?}, new={:?}", min, new_epoch); */
 
-        return now - min;
+        now - min
     }
 
     /// Hits the ratelimit
@@ -97,7 +97,7 @@ impl RLEntry {
         }
         //println!("ts: {:?}", self.timestamps);
 
-        return true;
+        true
     }
 }
 
@@ -140,10 +140,7 @@ impl std::fmt::Display for RatelimitInvalidError {
 impl Ratelimit {
     pub fn check_bounds(hits: u32, duration: u32) -> Result<(), RatelimitInvalidError> {
         if hits == 0 || duration == 0 || duration > MAX_DURATION {
-            Err(RatelimitInvalidError {
-                hits: hits,
-                duration: duration,
-            })
+            Err(RatelimitInvalidError { hits, duration })
         } else {
             Ok(())
         }
@@ -153,8 +150,8 @@ impl Ratelimit {
         Ratelimit::check_bounds(hits, duration)?;
 
         Ok(Ratelimit {
-            hits: hits,
-            duration: duration,
+            hits,
+            duration,
             entries: HashMap::new(),
         })
     }
@@ -172,6 +169,10 @@ impl Ratelimit {
     }
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     pub fn cleanup(&mut self) -> usize {
@@ -203,6 +204,8 @@ impl Ratelimit {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::bool_assert_comparison)]
+
     use super::*;
     use mock_instant::MockClock;
 
@@ -210,9 +213,8 @@ mod test {
     /// specific time-frame will either return true or false
     #[test]
     fn test_base_process() {
-
         let ms1 = Duration::from_millis(1);
-        let root = ms1.clone();
+        let root = ms1;
         let rl_duration_ms = 2_000;
         let rl_duration = Duration::from_millis(rl_duration_ms.into());
 
@@ -223,20 +225,20 @@ mod test {
 
         // 10 hits OK in 1 second
         for _ in 0..10 {
-            assert_eq!(rl.hit(&st), true);
+            assert_eq!(rl.hit(st), true);
 
             MockClock::advance(Duration::from_millis(10));
         }
 
         // still not OK
-        assert_eq!(rl.hit(&st), false);
+        assert_eq!(rl.hit(st), false);
 
         // still not OK less than 2 seconds from the start
         MockClock::set_time(root + rl_duration - ms1);
-        assert_eq!(rl.hit(&st), false);
+        assert_eq!(rl.hit(st), false);
 
         MockClock::advance(Duration::from_millis(1));
-        assert_eq!(rl.hit(&st), true);
+        assert_eq!(rl.hit(st), true);
     }
 
     #[test]
@@ -249,7 +251,7 @@ mod test {
         MockClock::set_time(Duration::from_millis(200));
 
         for _i in 0..70 {
-            assert!(rl.hit(&st));
+            assert!(rl.hit(st));
             MockClock::advance(Duration::from_secs(86400));
         }
     }
@@ -290,7 +292,7 @@ mod test {
         let fail = Ratelimit::new(10, 0);
         assert!(fail.is_err());
 
-        let fail = Ratelimit::new(10, 2 << 32 - 1);
+        let fail = Ratelimit::new(10, u32::MAX - 42);
         assert!(fail.is_err());
     }
 }
