@@ -79,7 +79,7 @@ fn main() -> io::Result<()> {
 
         while let Some(stream) = incoming.next().await {
             let mut stream = stream?;
-            let mut handler = StreamHandler::new(&arc, &arc_collection);
+            let handler = StreamHandler::new(&arc, &arc_collection);
             task::spawn(async move { handler.main(&mut stream).await });
         }
         Ok(())

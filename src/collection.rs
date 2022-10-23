@@ -20,6 +20,7 @@ impl RatelimitCollection {
         hits: u32,
         duration: u32,
     ) -> Result<&mut Ratelimit, RatelimitInvalidError> {
+        #[allow(clippy::map_entry)]
         if !self.entries.contains_key(&(hits, duration)) {
             let rl = Ratelimit::new(hits, duration)?;
             self.entries.insert((hits, duration), rl);

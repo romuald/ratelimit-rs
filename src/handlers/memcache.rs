@@ -12,6 +12,9 @@ use futures::lock::Mutex;
 
 use crate::{Ratelimit, RatelimitCollection};
 
+pub trait AsyncStream: Read + Write + Unpin {}
+impl<T: Read + Write + Unpin>  AsyncStream for T {}
+
 enum Command {
     Incr(String),
 }
@@ -20,6 +23,7 @@ pub struct StreamHandler {
     ratelimit: Arc<Mutex<Ratelimit>>,
     ratelimit_collection: Arc<Mutex<RatelimitCollection>>,
 }
+
 
 /// StreamHandler
 /// Handles a single TCP stream
@@ -35,22 +39,22 @@ impl StreamHandler {
     }
 
     /// An "OK" response, request was within the limits (ironically 0)
-    async fn reply_ok(&mut self, stream: &mut (impl Read + Write + Unpin)) -> bool {
+    async fn reply_ok(&self, stream: &mut impl AsyncStream) -> bool {
         self.write("0\r\n", stream).await
     }
 
-    /// An "not OK" response, request was outside the limits and should be limited (ironically 0)
-    async fn reply_ko(&mut self, stream: &mut (impl Read + Write + Unpin)) -> bool {
+    /// An "not OK" response, request was outside the limits and should be limited (ironically 1)
+    async fn reply_ko(&self, stream: &mut impl AsyncStream) -> bool {
         self.write("1\r\n", stream).await
     }
 
     /// An "error" response, the request was malformed or using a bad syntax
-    async fn reply_err(&mut self, stream: &mut (impl Read + Write + Unpin)) -> bool {
+    async fn reply_err(&self, stream: &mut impl AsyncStream) -> bool {
         self.write("ERR\r\n", stream).await
     }
 
     /// Flush the binary response
-    async fn write(&mut self, response: &str, stream: &mut (impl Read + Write + Unpin)) -> bool {
+    async fn write(&self, response: &str, stream: &mut impl AsyncStream) -> bool {
         stream.write(response.as_bytes()).await.is_ok() && stream.flush().await.is_ok()
     }
 
@@ -58,9 +62,9 @@ impl StreamHandler {
     /// Will write the response on the output stream
     /// Can return an error in case the keyname is invalid
     async fn handle_incr(
-        &mut self,
+        &self,
         keyname: &str,
-        stream: &mut (impl Read + Write + Unpin),
+        stream: &mut impl AsyncStream,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let within_limits = match parse_specification(keyname) {
             Some((hits, duration, keyname)) => {
@@ -85,8 +89,8 @@ impl StreamHandler {
 
     /// Handles a single command (one read currently)
     async fn handle_one(
-        &mut self,
-        stream: &mut (impl Read + Write + Unpin),
+        &self,
+        stream: &mut impl AsyncStream,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buffer = [0; 512];
         let read = stream.read(&mut buffer).await?;
@@ -262,7 +266,7 @@ mod test {
 
         let rl = Arc::new(Mutex::new(Ratelimit::new(1, 1).unwrap()));
         let xrl = Arc::new(Mutex::new(RatelimitCollection::default()));
-        let mut handler = StreamHandler::new(&rl, &xrl);
+        let handler = StreamHandler::new(&rl, &xrl);
 
         let mut stream = MockTcpStream::from_rdata("incr zzz\r\n".to_string());
 
