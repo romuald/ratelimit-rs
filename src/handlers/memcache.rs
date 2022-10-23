@@ -13,7 +13,7 @@ use futures::lock::Mutex;
 use crate::{Ratelimit, RatelimitCollection};
 
 pub trait AsyncStream: Read + Write + Unpin {}
-impl<T: Read + Write + Unpin>  AsyncStream for T {}
+impl<T: Read + Write + Unpin> AsyncStream for T {}
 
 enum Command {
     Incr(String),
@@ -23,7 +23,6 @@ pub struct StreamHandler {
     ratelimit: Arc<Mutex<Ratelimit>>,
     ratelimit_collection: Arc<Mutex<RatelimitCollection>>,
 }
-
 
 /// StreamHandler
 /// Handles a single TCP stream
