@@ -198,58 +198,6 @@ fn parse_specification(keyname: &str) -> Option<(u32, u32, String)> {
     }
 }
 
-/*
-
-enum ProtocolResponse {
-    Valid(String),
-    Empty,
-    Error,
-    Fatal,
-}
-
-async fn handle_one(stream: &mut TcpStream)  -> Result<ProtocolResponse, Box<dyn std::error::Error>>{
-    let mut buffer = [0; 512];
-    let read = stream.read(&mut buffer).await?;
-
-    // Empty read: close the connection
-    if read == 0 {
-        return Err("".into());
-    }
-    let command = read_input(buffer, read);
-    if command.is_err() {
-        return Ok(ProtocolResponse::Error);
-    }
-
-    let command = command.unwrap();
-    match command {
-        Command::INCR(x) => todo!(),
-    }
-
-
-    Ok(ProtocolResponse::Valid("OK".into()))
-}
-
-async fn handle_stream(stream: &mut TcpStream) {
-    loop {
-        let result = handle_one(stream).await;
-        if result.is_err() {
-            break;
-        }
-        let result = result.unwrap();
-        let response =  match result {
-            ProtocolResponse::Valid(ref x) =>x.as_bytes(),
-            ProtocolResponse::Error => "ERR\r\n".as_bytes(),
-            ProtocolResponse::Empty => continue,
-            ProtocolResponse::Fatal => break,
-        };
-
-        if stream.write(response).await.is_err() {
-            break;
-        }
-    }
-
-}
-*/
 
 #[cfg(test)]
 mod test {
